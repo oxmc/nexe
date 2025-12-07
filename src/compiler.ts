@@ -11,16 +11,14 @@ import {
   dequote,
   isWindows,
   bound,
-  semverGt,
-  wrap,
+  semverGt
 } from "./util";
 import { NexeOptions, version } from "./options";
 import { NexeTarget } from "./target";
-import { PassThrough, Readable, Stream, Transform } from "stream";
+import { Readable, Transform } from "stream";
 import MultiStream = require("multistream");
 import { Bundle, toStream } from "./fs/bundle";
 import { File } from "resolve-dependencies";
-import { FactoryStream, LazyStream } from "multistream";
 
 const isBsd = Boolean(~process.platform.indexOf("bsd"));
 const make = isWindows ? "vcbuild.bat" : isBsd ? "gmake" : "make";
@@ -132,7 +130,7 @@ export class NexeCompiler {
       this.env = { ...process.env };
       this.env.PATH = python
         ? (this.env.PATH =
-            dequote(normalize(python)) + delimiter + originalPath)
+          dequote(normalize(python)) + delimiter + originalPath)
         : originalPath;
       process.env.PATH = originalPath;
     } else {
@@ -255,15 +253,13 @@ export class NexeCompiler {
 
   public async build(): Promise<ReadStream> {
     this.compileStep!.log(
-      `Configuring node build${
-        this.options.configure.length ? ": " + this.options.configure : "..."
+      `Configuring node build${this.options.configure.length ? ": " + this.options.configure : "..."
       }`
     );
     await this._configureAsync();
     const buildOptions = this.options.make;
     this.compileStep!.log(
-      `Compiling Node${
-        buildOptions.length ? " with arguments: " + buildOptions : "..."
+      `Compiling Node${buildOptions.length ? " with arguments: " + buildOptions : "..."
       }`
     );
     await this._runBuildCommandAsync(make, buildOptions);

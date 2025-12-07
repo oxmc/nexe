@@ -28,7 +28,7 @@ export class Logger {
       });
       this.ora.stop();
     }
-    const noop = () => {};
+    const noop = () => { };
     this.modify = this.silent ? noop : this._modify.bind(this);
     this.write = this.silent ? noop : this._write.bind(this);
   }
@@ -50,7 +50,7 @@ export class Logger {
 
   step(text: string, method = "succeed"): LogStep {
     if (this.silent) {
-      return { modify() {}, log() {}, pause() {}, resume() {} };
+      return { modify() { }, log() { }, pause() { }, resume() { } };
     }
     if (!this.ora.id) {
       this.ora.start().text = text;

@@ -60,12 +60,11 @@ export default async function cli(
 
           chmodSync(output, mode.toString(8).slice(-3));
           step.log(
-            `Entry: '${
-              compiler.stdinUsed
-                ? compiler.options.mangle
-                  ? STDIN_FLAG
-                  : "[none]"
-                : inputFileLogOutput
+            `Entry: '${compiler.stdinUsed
+              ? compiler.options.mangle
+                ? STDIN_FLAG
+                : "[none]"
+              : inputFileLogOutput
             }' written to: ${outputFileLogOutput}`
           );
           compiler.quit();

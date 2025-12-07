@@ -1,5 +1,5 @@
 import { ZipFS, getLibzipSync } from "@yarnpkg/libzip";
-import { patchFs, npath, PosixFS, NodeFS } from "@yarnpkg/fslib";
+import { patchFs, PosixFS, NodeFS } from "@yarnpkg/fslib";
 import { SnapshotZipFS } from "./SnapshotZipFS";
 import * as assert from "assert";
 import * as constants from "constants";
@@ -16,7 +16,7 @@ export interface NexeHeader {
 }
 
 let originalFsMethods: any = null;
-let lazyRestoreFs = () => {};
+let lazyRestoreFs = () => { };
 const patches = (process as any).nexe.patches || {};
 const originalPatches = { ...patches };
 delete (process as any).nexe;
@@ -125,7 +125,7 @@ function shimFs(binary: NexeHeader, fs: typeof import("fs") = require("fs")) {
   lazyRestoreFs = () => {
     Object.assign(fs, originalFsMethods);
     Object.assign(patches, originalPatches);
-    lazyRestoreFs = () => {};
+    lazyRestoreFs = () => { };
   };
 }
 

@@ -58,7 +58,7 @@ class Target implements NexeTarget {
     public arch: NodeArch,
     public platform: NodePlatform,
     public version: string
-  ) {}
+  ) { }
   toJSON() {
     return this.toString();
   }
@@ -78,9 +78,9 @@ export function getTarget(
 ): NexeTarget {
   const currentArch = process.arch;
   let arch =
-      currentArch in prettyArch
-        ? prettyArch[process.arch]
-        : (process.arch as NodeArch),
+    currentArch in prettyArch
+      ? prettyArch[process.arch]
+      : (process.arch as NodeArch),
     platform = prettyPlatform[process.platform],
     version = process.version.slice(1);
 

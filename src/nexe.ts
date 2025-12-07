@@ -1,6 +1,5 @@
-import { EOL } from "os";
 import { compose } from "app-builder";
-import { NexeCompiler, NexeError } from "./compiler";
+import { NexeCompiler } from "./compiler";
 import { normalizeOptions, NexeOptions, NexePatch } from "./options";
 import resource from "./steps/resource";
 import clean from "./steps/clean";

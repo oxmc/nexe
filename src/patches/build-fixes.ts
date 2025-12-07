@@ -8,8 +8,6 @@ export default async function buildFixes(
     return next();
   }
 
-  const file = await compiler.readFileAsync("./tools/msvs/find_python.cmd");
-
   await compiler.replaceInFileAsync(
     "./tools/msvs/find_python.cmd",
     "%p%python.exe -V 2>&1",

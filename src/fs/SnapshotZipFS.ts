@@ -336,7 +336,7 @@ export class SnapshotZipFS extends BasePortableFakeFS {
         let fallbackPaths: Array<string | Dirent<PortablePath>> = [];
         try {
           fallbackPaths = fallback();
-        } catch (e) {}
+        } catch (e) { }
         return fallbackPaths.concat(
           uniqReaddir(zipFs.readdirSync(subPath, opts as any))
         );

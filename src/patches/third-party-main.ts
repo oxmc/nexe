@@ -69,8 +69,8 @@ export default async function main(
       location.start.line,
       0,
       '{{ file("lib/fs/bootstrap.js") }}' +
-        "\n" +
-        (semverGt(version, "11.99") ? "expandArgv1 = false;\n" : "")
+      "\n" +
+      (semverGt(version, "11.99") ? "expandArgv1 = false;\n" : "")
     );
   }
   file.contents = fileLines.join("\n");
@@ -81,7 +81,7 @@ export default async function main(
         bootFile,
         "initializeFrozenIntrinsics();",
         "initializeFrozenIntrinsics();\n" +
-          wrap('{{ file("lib/patches/boot-nexe.js") }}')
+        wrap('{{ file("lib/patches/boot-nexe.js") }}')
       );
     } else {
       await compiler.replaceInFileAsync(
@@ -103,14 +103,14 @@ export default async function main(
         "src/node.cc",
         "if (env->worker_context() != nullptr) {",
         "if (env->worker_context() == nullptr) {\n" +
-          '  return StartExecution(env, "internal/main/run_main_module"); } else {\n'
+        '  return StartExecution(env, "internal/main/run_main_module"); } else {\n'
       );
     } else {
       await compiler.replaceInFileAsync(
         "src/node.cc",
         "MaybeLocal<Value> StartMainThreadExecution(Environment* env) {",
         "MaybeLocal<Value> StartMainThreadExecution(Environment* env) {\n" +
-          '  return StartExecution(env, "internal/main/run_main_module");\n'
+        '  return StartExecution(env, "internal/main/run_main_module");\n'
       );
     }
   } else {

@@ -1,13 +1,12 @@
-import axios, { AxiosResponse } from "axios";
+import axios from "axios";
 import { pathExistsAsync } from "../util";
 import { LogStep } from "../logger";
-import { IncomingMessage } from "http";
 import { NexeCompiler, NexeError } from "../compiler";
 import { dirname } from "path";
 import { createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
-import { createBrotliDecompress, createGunzip, createInflate } from "zlib";
-import tar from "tar";
+import { createGunzip } from "zlib";
+import * as tar from 'tar';
 import fs from "fs/promises";
 
 async function downloadWithProgress(
@@ -16,6 +15,9 @@ async function downloadWithProgress(
   options: any = {},
   step?: LogStep
 ): Promise<void> {
+  // Ensure destination directory exists
+  await fs.mkdir(dirname(dest), { recursive: true });
+
   const response = await axios({
     url,
     method: "GET",
@@ -51,6 +53,9 @@ async function fetchNodeSourceAsync(
   step: LogStep,
   options = {}
 ) {
+  // Ensure destination directory exists
+  await fs.mkdir(dest, { recursive: true });
+
   const setText = (p: number) =>
     step.modify(`Downloading Node: ${p.toFixed()}%...`);
 
@@ -86,7 +91,7 @@ async function fetchNodeSourceAsync(
   await pipeline(
     createReadStream(tempFile),
     createGunzip(),
-    tar.extract({
+    tar.x({
       cwd: dest,
       strip: 1,
     })
@@ -136,8 +141,7 @@ export default async function downloadNode(
       sourceUrl ||
       `https://nodejs.org/dist/v${version}/node-v${version}.tar.gz`,
     step = log.step(
-      `Downloading ${build ? "" : "pre-built"} Node.js ${
-        build ? `source from: ${url}` : ""
+      `Downloading ${build ? "" : "pre-built"} Node.js ${build ? `source from: ${url}` : ""
       }`
     ),
     exeLocation = compiler.getNodeExecutableLocation(

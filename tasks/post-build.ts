@@ -15,7 +15,7 @@ inject("lib/options.js", JSON.stringify(require("../package.json").version));
 
 function inject(filename: string, version?: string) {
   const contents = template(readFileSync(filename, "utf8"), {
-    interpolate: /'\{\{([\s\S]*?)\}\}'/,
+    interpolate: /['"]\{\{([\s\S]*?)\}\}['"]/,
   })({
     file: (path: string) => JSON.stringify(readFileSync(path, "utf8")),
     version,
