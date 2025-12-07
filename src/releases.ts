@@ -1,4 +1,4 @@
-import got = require('got')
+import axios from 'axios';
 import { platforms, architectures, NexeTarget, getTarget, targetsEqual } from './target'
 export { NexeTarget }
 
@@ -20,8 +20,9 @@ interface NodeRelease {
   version: string
 }
 
-async function getJson<T>(url: string, options?: any) {
-  return JSON.parse((await got(url, options)).body) as T
+async function getJson<T>(url: string, options?: any): Promise<T> {
+  const response = await axios.get(url, options);
+  return response.data as T;
 }
 
 function isBuildableVersion(version: string) {
@@ -31,7 +32,7 @@ function isBuildableVersion(version: string) {
   return !versionsToSkip.includes(Number(version.split('.')[0]))
 }
 
-export function getLatestGitRelease(options?: any) {
+export function getLatestGitRelease(options?: any): Promise<GitRelease> {
   return getJson<GitRelease>('https://api.github.com/repos/nexe/nexe/releases/latest', options)
 }
 

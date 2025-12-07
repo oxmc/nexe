@@ -1,6 +1,6 @@
 import { NexeTarget, architectures } from '../lib/target'
 import { writeFileAsync, readFileAsync } from '../lib/util'
-import got from 'got'
+import axios from 'axios'
 import execa = require('execa')
 import { appendFileSync } from 'fs'
 
@@ -58,11 +58,20 @@ export async function runDockerBuild(target: NexeTarget) {
       appendFileSync(outFilename, x.stderr)
       appendFileSync(outFilename, x.stdout)
     })
-    await got(`https://transfer.sh/${Math.random().toString(36).substring(2)}.txt`, {
-      body: await readFileAsync(outFilename),
-      method: 'PUT',
-    })
-      .then((x) => console.log('Posted docker log: ', x.body))
-      .catch((e) => console.log('Error posting log', e))
+
+    try {
+      const response = await axios.put(
+        `https://transfer.sh/${Math.random().toString(36).substring(2)}.txt`,
+        await readFileAsync(outFilename),
+        {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          }
+        }
+      )
+      console.log('Posted docker log: ', response.data)
+    } catch (e: any) {
+      console.log('Error posting log', e)
+    }
   }
 }

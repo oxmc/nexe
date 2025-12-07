@@ -1,25 +1,90 @@
-import download = require('download')
+import axios, { AxiosResponse } from 'axios'
 import { pathExistsAsync } from '../util'
 import { LogStep } from '../logger'
 import { IncomingMessage } from 'http'
 import { NexeCompiler, NexeError } from '../compiler'
 import { dirname } from 'path'
+import { createWriteStream } from 'fs'
+import { pipeline } from 'stream/promises'
+import { createBrotliDecompress, createGunzip, createInflate } from 'zlib'
+import tar from 'tar'
+import fs from 'fs/promises'
 
-function fetchNodeSourceAsync(dest: string, url: string, step: LogStep, options = {}) {
+async function downloadWithProgress(url: string, dest: string, options: any = {}, step?: LogStep): Promise<void> {
+  const response = await axios({
+    url,
+    method: 'GET',
+    responseType: 'stream',
+    ...options
+  })
+
+  const total = parseInt(response.headers['content-length'] || '0', 10)
+  let current = 0
+
+  // Create write stream
+  const writer = createWriteStream(dest)
+
+  // Handle progress
+  response.data.on('data', (chunk: Buffer) => {
+    current += chunk.length
+    if (step && total > 0) {
+      step.modify(`Downloading...${((current / total) * 100).toFixed()}%`)
+    }
+  })
+
+  // Pipe the response to file
+  await pipeline(response.data, writer)
+
+  if (step) {
+    step.log(`Download completed: ${dest}`)
+  }
+}
+
+async function fetchNodeSourceAsync(dest: string, url: string, step: LogStep, options = {}) {
   const setText = (p: number) => step.modify(`Downloading Node: ${p.toFixed()}%...`)
-  return download(url, dest, Object.assign(options, { extract: true, strip: 1 }))
-    .on('response', (res: IncomingMessage) => {
-      const total = +res.headers['content-length']!
-      let current = 0
-      res.on('data', (data) => {
-        current += data.length
-        setText((current / total) * 100)
-        if (current === total) {
-          step.log('Extracting Node...')
-        }
-      })
+
+  // Download the file first
+  const tempFile = dest + '.tar.gz'
+  const response = await axios({
+    url,
+    method: 'GET',
+    responseType: 'stream',
+    ...options
+  })
+
+  const total = parseInt(response.headers['content-length'] || '0', 10)
+  let current = 0
+
+  // Create write stream for the temp file
+  const writer = createWriteStream(tempFile)
+
+  // Track progress
+  response.data.on('data', (chunk: Buffer) => {
+    current += chunk.length
+    if (total > 0) {
+      setText((current / total) * 100)
+    }
+  })
+
+  // Wait for download to complete
+  await pipeline(response.data, writer)
+
+  step.log('Extracting Node...')
+
+  // Extract the tar.gz file
+  await pipeline(
+    createReadStream(tempFile),
+    createGunzip(),
+    tar.extract({
+      cwd: dest,
+      strip: 1
     })
-    .then(() => step.log(`Node source extracted to: ${dest}`))
+  )
+
+  // Clean up temp file
+  await fs.unlink(tempFile)
+
+  step.log(`Node source extracted to: ${dest}`)
 }
 
 async function fetchPrebuiltBinary(compiler: NexeCompiler, step: any) {
@@ -27,22 +92,12 @@ async function fetchPrebuiltBinary(compiler: NexeCompiler, step: any) {
     filename = compiler.getNodeExecutableLocation(target)
 
   try {
-    await download(remoteAsset, dirname(filename), compiler.options.downloadOptions).on(
-      'response',
-      (res: IncomingMessage) => {
-        const total = +res.headers['content-length']!
-        let current = 0
-        res.on('data', (data) => {
-          current += data.length
-          step!.modify(`Downloading...${((current / total) * 100).toFixed()}%`)
-        })
-      }
-    )
+    await downloadWithProgress(remoteAsset, filename, compiler.options.downloadOptions, step)
   } catch (e: any) {
-    if (e.statusCode === 404) {
+    if (e.response?.status === 404) {
       throw new NexeError(`${remoteAsset} is not available, create it using the --build flag`)
     } else {
-      throw new NexeError('Error downloading prebuilt binary: ' + e)
+      throw new NexeError('Error downloading prebuilt binary: ' + e.message)
     }
   }
 }
@@ -75,4 +130,9 @@ export default async function downloadNode(compiler: NexeCompiler, next: () => P
   }
 
   return next()
+}
+
+// Helper function to create a readable stream
+function createReadStream(path: string) {
+  return require('fs').createReadStream(path)
 }

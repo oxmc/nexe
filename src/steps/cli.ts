@@ -1,8 +1,10 @@
+import { platform } from 'os'
 import { dirname, normalize, relative, resolve } from 'path'
-import { createWriteStream, chmodSync, statSync } from 'fs'
+import { createWriteStream, chmodSync, statSync, readFileSync, writeFileSync } from 'fs'
 import { NexeCompiler } from '../compiler'
 import { NexeTarget } from '../target'
 import { STDIN_FLAG } from '../util'
+import { patchMachOExecutable } from './mach-o'
 import mkdirp = require('mkdirp')
 
 /**
@@ -40,6 +42,11 @@ export default async function cli(compiler: NexeCompiler, next: () => Promise<vo
               resolve(compiler.options.cwd, compiler.entrypoint || compiler.options.input)
             ),
             outputFileLogOutput = relative(process.cwd(), output)
+
+          if (platform() === 'darwin') {
+            step.log('Preparing binary for macOS signing.')
+            writeFileSync(output, patchMachOExecutable(readFileSync(output)))
+          }
 
           chmodSync(output, mode.toString(8).slice(-3))
           step.log(

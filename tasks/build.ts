@@ -3,7 +3,8 @@ import { getUnBuiltReleases, getLatestGitRelease } from '../lib/releases'
 import { runDockerBuild } from './docker'
 import { getTarget, targetsEqual, NexeTarget } from '../lib/target'
 import { pathExistsAsync, readFileAsync, execFileAsync, semverGt } from '../lib/util'
-import got from 'got'
+import axios from 'axios'
+import FormData from 'form-data'
 import { cpus } from 'os'
 
 const env = process.env,
@@ -85,15 +86,23 @@ async function build() {
       process.exit(0)
       return
     }
-    await got(gitRelease.upload_url.split('{')[0], {
-      searchParams: { name: target.toString() },
-      body: await readFileAsync(output),
+
+    // Create form data for file upload
+    const formData = new FormData();
+    formData.append('file', await readFileAsync(output), {
+      filename: target.toString(),
+      contentType: 'application/octet-stream'
+    });
+
+    const uploadUrl = gitRelease.upload_url.split('{')[0];
+    await axios.post(uploadUrl, formData, {
+      params: { name: target.toString() },
       headers: {
         ...headers,
-        'Content-Type': 'application/octet-stream',
+        ...formData.getHeaders(),
       },
     }).catch((reason) => {
-      console.log(reason && reason.response && reason.response.body)
+      console.log(reason && reason.response && reason.response.data)
       throw reason
     })
     console.log(target + ' uploaded.')
