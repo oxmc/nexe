@@ -15,7 +15,7 @@
     "test:integration:run": "run-script-os",
     "test:integration:run:win32": "integration-tests.exe",
     "test:integration:run:default": "./integration-tests",
-    "lint": "tslint \"{src,plugins,tasks}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,plugins,tasks}/**/*.ts\" --fix",
     "prepare": "npm run lint && npm run build && npm test",
     "prebuild": "rimraf lib",
     "build": "tsc --declaration && tsc -p tasks && webpack",
@@ -82,9 +82,11 @@
     "mocha": "^10.2.0",
     "prettier": "^2.8.7",
     "ts-node": "^10.9.1",
-    "tslint": "^6.1.1",
-    "tslint-config-prettier": "^1.18.0",
-    "tslint-plugin-prettier": "^2.3.0",
+    "@typescript-eslint/eslint-plugin": "^5.59.0",
+    "@typescript-eslint/parser": "^5.59.0",
+    "eslint": "^8.40.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-prettier": "^4.2.1",
     "typescript": "^5.0.3",
     "webpack-cli": "^5.0.1"
   }

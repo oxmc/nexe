@@ -1,11 +1,17 @@
-import { platform } from 'os'
-import { dirname, normalize, relative, resolve } from 'path'
-import { createWriteStream, chmodSync, statSync, readFileSync, writeFileSync } from 'fs'
-import { NexeCompiler } from '../compiler'
-import { NexeTarget } from '../target'
-import { STDIN_FLAG } from '../util'
-import { patchMachOExecutable } from './mach-o'
-import mkdirp = require('mkdirp')
+import { platform } from "os";
+import { dirname, normalize, relative, resolve } from "path";
+import {
+  createWriteStream,
+  chmodSync,
+  statSync,
+  readFileSync,
+  writeFileSync,
+} from "fs";
+import { NexeCompiler } from "../compiler";
+import { NexeTarget } from "../target";
+import { STDIN_FLAG } from "../util";
+import { patchMachOExecutable } from "./mach-o";
+import mkdirp = require("mkdirp");
 
 /**
  * The "cli" step detects the appropriate input. If no input options are passed,
@@ -17,50 +23,54 @@ import mkdirp = require('mkdirp')
  * @param {*} compiler
  * @param {*} next
  */
-export default async function cli(compiler: NexeCompiler, next: () => Promise<void>) {
-  await next()
+export default async function cli(
+  compiler: NexeCompiler,
+  next: () => Promise<void>
+) {
+  await next();
   const { log } = compiler,
     target = compiler.options.targets.shift() as NexeTarget,
     deliverable = await compiler.compileAsync(target),
-    output = normalize(compiler.output!)
+    output = normalize(compiler.output!);
 
-  mkdirp.sync(dirname(output))
+  mkdirp.sync(dirname(output));
 
   return new Promise((res, rej) => {
-    const step = log.step('Writing result to file')
+    const step = log.step("Writing result to file");
     deliverable
       .pipe(createWriteStream(output))
-      .on('error', rej)
-      .once('close', (e: Error) => {
-        if (e) {
-          rej(e)
-        } else if (compiler.output) {
+      .on("error", rej)
+      .once("close", () => {
+        if (compiler.output) {
           const output = compiler.output,
             mode = statSync(output).mode | 0o111,
             inputFileLogOutput = relative(
               process.cwd(),
-              resolve(compiler.options.cwd, compiler.entrypoint || compiler.options.input)
+              resolve(
+                compiler.options.cwd,
+                compiler.entrypoint || compiler.options.input
+              )
             ),
-            outputFileLogOutput = relative(process.cwd(), output)
+            outputFileLogOutput = relative(process.cwd(), output);
 
-          if (platform() === 'darwin') {
-            step.log('Preparing binary for macOS signing.')
-            writeFileSync(output, patchMachOExecutable(readFileSync(output)))
+          if (platform() === "darwin") {
+            step.log("Preparing binary for macOS signing.");
+            writeFileSync(output, patchMachOExecutable(readFileSync(output)));
           }
 
-          chmodSync(output, mode.toString(8).slice(-3))
+          chmodSync(output, mode.toString(8).slice(-3));
           step.log(
             `Entry: '${
               compiler.stdinUsed
                 ? compiler.options.mangle
                   ? STDIN_FLAG
-                  : '[none]'
+                  : "[none]"
                 : inputFileLogOutput
             }' written to: ${outputFileLogOutput}`
-          )
-          compiler.quit()
-          res(output)
+          );
+          compiler.quit();
+          res(output);
         }
-      })
-  })
+      });
+  });
 }

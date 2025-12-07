@@ -1,24 +1,27 @@
-import { NexeCompiler } from '../compiler'
-import { wrap } from '../util'
+import { NexeCompiler } from "../compiler";
+import { wrap } from "../util";
 
-export default async function (compiler: NexeCompiler, next: () => Promise<void>) {
-  await next()
+export default async function (
+  compiler: NexeCompiler,
+  next: () => Promise<void>
+) {
+  await next();
   compiler.shims.push(
     wrap(
       [
-        'process.__nexe = {};',
-        'const fsPatcher = (function() {',
-        'const module = {exports: {}};',
-        'const exports = module.exports;',
+        "process.__nexe = {};",
+        "const fsPatcher = (function() {",
+        "const module = {exports: {}};",
+        "const exports = module.exports;",
         '{{file("lib/fs/patch.bundle.js")}}',
-        'return module.exports;',
-        '})()',
-        'fsPatcher.shimFs(process.__nexe);',
-        compiler.options.fs ? '' : 'restoreFs();',
-      ].join('\n')
+        "return module.exports;",
+        "})()",
+        "fsPatcher.shimFs(process.__nexe);",
+        compiler.options.fs ? "" : "restoreFs();",
+      ].join("\n")
       //TODO support only restoring specific methods
     )
-  )
+  );
   compiler.shims.push(
     wrap(`
     if (process.argv[1] && process.env.NODE_UNIQUE_ID) {
@@ -27,7 +30,7 @@ export default async function (compiler: NexeCompiler, next: () => Promise<void>
       delete process.env.NODE_UNIQUE_ID
     }
   `)
-  )
+  );
 
   compiler.shims.push(
     wrap(`
@@ -39,5 +42,5 @@ export default async function (compiler: NexeCompiler, next: () => Promise<void>
         process.argv.splice(1,0, entry)
       }
     `)
-  )
+  );
 }

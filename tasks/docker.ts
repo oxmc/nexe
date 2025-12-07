@@ -1,12 +1,12 @@
-import { NexeTarget, architectures } from '../lib/target'
-import { writeFileAsync, readFileAsync } from '../lib/util'
-import axios from 'axios'
-import execa = require('execa')
-import { appendFileSync } from 'fs'
+import { NexeTarget, architectures } from "../lib/target";
+import { writeFileAsync, readFileAsync } from "../lib/util";
+import axios from "axios";
+import execa = require("execa");
+import { appendFileSync } from "fs";
 
 function alpine(target: NexeTarget) {
   return `
-FROM ${target.arch === 'x64' ? '' : 'i386/'}alpine:3.12
+FROM ${target.arch === "x64" ? "" : "i386/"}alpine:3.12
 RUN apk add --no-cache curl make gcc g++ binutils-gold python linux-headers paxctl libgcc libstdc++ git vim tar gzip wget
 ENV NODE_VERSION=${target.version}
 ENV NEXE_VERSION=latest
@@ -23,7 +23,7 @@ RUN rm /nexe_temp/\${NODE_VERSION}/out/Release/node && \
   npm install -g nexe@\${NEXE_VERSION}
 RUN echo "console.log('hello world')" >> index.js && \
   nexe --build --no-mangle --temp /nexe_temp -c="--fully-static" -o out
-`.trim()
+`.trim();
 }
 
 function arm(target: NexeTarget) {
@@ -34,30 +34,32 @@ WORKDIR /
 
 RUN yarn global add nexe@\${NEXE_VERSION} && \
   nexe --build --no-mangle -o out -t ${target.version}
-`.trim()
+`.trim();
 }
 
 export async function runDockerBuild(target: NexeTarget) {
   //todo switch on alpine and arm
-  const dockerfile = alpine(target)
-  await writeFileAsync('Dockerfile', dockerfile)
-  const outFilename = 'nexe-docker-build-log.txt'
-  await writeFileAsync(outFilename, '')
-  let output: any = []
+  const dockerfile = alpine(target);
+  await writeFileAsync("Dockerfile", dockerfile);
+  const outFilename = "nexe-docker-build-log.txt";
+  await writeFileAsync(outFilename, "");
+  const output: any = [];
 
   try {
-    output.push(await execa(`docker build -t nexe-docker .`, { shell: true }))
-    output.push(await execa(`docker run -d --name nexe nexe-docker sh`, { shell: true }))
-    output.push(await execa(`docker cp nexe:/out out`, { shell: true }))
-    output.push(await execa(`docker rm nexe`, { shell: true }))
+    output.push(await execa(`docker build -t nexe-docker .`, { shell: true }));
+    output.push(
+      await execa(`docker run -d --name nexe nexe-docker sh`, { shell: true })
+    );
+    output.push(await execa(`docker cp nexe:/out out`, { shell: true }));
+    output.push(await execa(`docker rm nexe`, { shell: true }));
   } catch (e: any) {
-    console.log('Error running docker')
-    appendFileSync(outFilename, e.message)
+    console.log("Error running docker");
+    appendFileSync(outFilename, e.message);
   } finally {
     output.forEach((x: any) => {
-      appendFileSync(outFilename, x.stderr)
-      appendFileSync(outFilename, x.stdout)
-    })
+      appendFileSync(outFilename, x.stderr);
+      appendFileSync(outFilename, x.stdout);
+    });
 
     try {
       const response = await axios.put(
@@ -65,13 +67,13 @@ export async function runDockerBuild(target: NexeTarget) {
         await readFileAsync(outFilename),
         {
           headers: {
-            'Content-Type': 'application/octet-stream',
-          }
+            "Content-Type": "application/octet-stream",
+          },
         }
-      )
-      console.log('Posted docker log: ', response.data)
+      );
+      console.log("Posted docker log: ", response.data);
     } catch (e: any) {
-      console.log('Error posting log', e)
+      console.log("Error posting log", e);
     }
   }
 }

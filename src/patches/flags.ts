@@ -1,16 +1,19 @@
-import { NexeCompiler } from '../compiler'
+import { NexeCompiler } from "../compiler";
 
-export default async function flags(compiler: NexeCompiler, next: () => Promise<void>) {
-  const nodeflags = compiler.options.flags
+export default async function flags(
+  compiler: NexeCompiler,
+  next: () => Promise<void>
+) {
+  const nodeflags = compiler.options.flags;
   if (!nodeflags.length) {
-    return next()
+    return next();
   }
 
   await compiler.replaceInFileAsync(
-    'node.gyp',
+    "node.gyp",
     "'node_v8_options%': ''",
-    `'node_v8_options%': '${nodeflags.join(' ')}'`
-  )
+    `'node_v8_options%': '${nodeflags.join(" ")}'`
+  );
 
-  return next()
+  return next();
 }
