@@ -136,6 +136,22 @@ compile({
     export function createBundle (options: NexeOptions): Promise<string>
     ```
     - default: true
+ - #### `bundleRules: object`
+    - Configuration for the runtime module resolution inside the snapshot.
+    This controls how bare module specifiers (e.g., `require('lodash')`) are resolved from the embedded `node_modules`.
+    - Properties:
+        - `conditions?: string[]` – The set of conditions to use when evaluating the exports field of a package.
+        Default: `['require', 'node', 'default']`.
+        - `basePath?: string` – The virtual filesystem path where `node_modules` is mounted. Default: `'/snapshot/node_modules'`.
+    - Example:
+    ```
+    javascript
+    {
+      conditions: ['require', 'node', 'production'],
+      basePath: '/snapshot/packages'
+    }
+    ```
+    - default: `{ conditions: ['require', 'node', 'default'], basePath: '/snapshot/node_modules' }`
  - #### `name: string`
     - Module friendly name of the application
     - default: basename of the input file, or `nexe_${Date.now()}`

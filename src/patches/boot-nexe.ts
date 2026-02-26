@@ -1,6 +1,6 @@
 const fs = require("fs"),
   fd = fs.openSync(process.execPath, "r"),
-  stat = fs.statSync(fd),
+  stat = fs.fstatSync(fd),
   tailSize = Math.min(stat.size, 16000),
   tailWindow = Buffer.alloc(tailSize),
   match = "<nexe" + "~~sentinel>",

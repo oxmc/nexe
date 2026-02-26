@@ -16,6 +16,15 @@ export interface NexePatch {
   (compiler: NexeCompiler, next: () => Promise<void>): Promise<void>;
 }
 
+export interface ModuleBundleRule {
+  include?: string[];
+  exclude?: string[];
+}
+
+export interface BundleRules {
+  [moduleName: string]: ModuleBundleRule;
+}
+
 export interface NexeOptions {
   build: boolean;
   input: string;
@@ -36,6 +45,7 @@ export interface NexeOptions {
   rc: { [key: string]: string };
   enableNodeCli: boolean;
   bundle: boolean | string;
+  bundleRules?: BundleRules;
   patches: (string | NexePatch)[];
   plugins: (string | NexePatch)[];
   native: any;
