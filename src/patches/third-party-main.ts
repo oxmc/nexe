@@ -95,6 +95,14 @@ export default async function main(
       "assert(!CJSLoader.hasLoadedAnyUserCJSModule)",
       "/*assert(!CJSLoader.hasLoadedAnyUserCJSModule)*/"
     );
+    // Node 22.22+ / 24 removed the ENOENT catch from finalizeResolution in the
+    // ESM resolver. realpathSync calls binding.lstat which throws ENOENT for VFS
+    // paths (they don't exist on real FS). Restore the catch so VFS imports work.
+    await compiler.replaceInFileAsync(
+      "lib/internal/modules/esm/resolve.js",
+      /const real = realpathSync\(path, \{ encoding: ['"]utf8['"] \}\);/,
+      "let real; try { real = realpathSync(path, { encoding: 'utf8' }); } catch (e) { if (e.code !== 'ENOENT') throw e; real = path; }"
+    );
     const { contents: nodeccContents } = await compiler.readFileAsync(
       "src/node.cc"
     );
