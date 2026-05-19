@@ -17,6 +17,11 @@ export default async function (
         "return module.exports;",
         "})()",
         "fsPatcher.shimFs(process.__nexe);",
+        // Re-apply ENOENT-tolerant realpathSync after shimFs overwrites boot-nexe's patch.
+        // Node 22.22+ / 24 no longer catches ENOENT in ESM finalizeResolution.
+        // ESM resolver captures fs.realpathSync by destructuring at first ESM load,
+        // which happens after the shim runs — so this wrapper is what it captures.
+        "(function(){var _fs=require('fs'),_o=_fs.realpathSync;_fs.realpathSync=function(p,o){try{return _o.call(this,p,o);}catch(e){if(e&&e.code==='ENOENT')return p;throw e;}};_fs.realpathSync.native=_o.native||_o;})()",
         compiler.options.fs ? "" : "restoreFs();",
       ].join("\n")
       //TODO support only restoring specific methods

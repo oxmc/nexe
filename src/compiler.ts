@@ -106,16 +106,16 @@ export class NexeCompiler {
   public remoteAsset: string;
 
   constructor(public options: NexeOptions) {
-    const { python } = (this.options = options);
+    const { python } = this.options;
     //SOMEDAY iterate over multiple targets with `--outDir`
     this.targets = options.targets as NexeTarget[];
     this.target = this.targets[0];
-    if (!/https?\:\/\//.test(options.remote)) {
+    if (!/https?:\/\//.test(options.remote)) {
       throw new NexeError(
         `Invalid remote URI scheme (must be http or https): ${options.remote}`
       );
     }
-    this.remoteAsset = options.remote + this.target.toString();
+    this.remoteAsset = options.remote + "nexe-asset-" + this.target.toString();
     this.src = join(this.options.temp, this.target.version);
     this.configureScript =
       configure + (semverGt(this.target.version, "10.10.0") ? ".py" : "");
@@ -135,7 +135,7 @@ export class NexeCompiler {
       process.env.PATH = originalPath;
     } else {
       this.env = { ...process.env };
-      python && (this.env.PYTHON = python);
+      if (python) this.env.PYTHON = python;
     }
   }
 
@@ -314,14 +314,18 @@ export class NexeCompiler {
     const sentinel = Buffer.from("<nexe~~sentinel>");
 
     let vfsSize = 0;
+    // finalize() must be called before any reads — archiver won't emit chunks
+    // until finalized, so calling it inside the Transform's first-chunk callback
+    // creates a deadlock (Transform waits for chunks, archiver waits for finalize).
+    const bundleStream = this.bundle.toStream();
+    this.bundle.finalize();
     const streams = [
       binary,
       toStream(launchCode),
-      this.bundle.toStream().pipe(
+      bundleStream.pipe(
         new Transform({
           transform: (chunk, _, cb) => {
-            vfsSize || this.bundle.finalize();
-            chunk && (vfsSize += chunk.length);
+            if (chunk) vfsSize += chunk.length;
             cb(null, chunk);
           },
         })

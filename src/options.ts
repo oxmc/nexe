@@ -83,7 +83,7 @@ const defaults = {
   bundle: true,
   patches: [],
   plugins: [],
-  remote: "https://github.com/nexe/nexe/releases/download/v3.3.3/",
+  remote: `https://github.com/oxmc/nexe/releases/download/v${require('../package.json').version}/`,
 };
 const alias = {
   i: "input",

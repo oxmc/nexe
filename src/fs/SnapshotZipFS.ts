@@ -169,6 +169,19 @@ export class SnapshotZipFS extends BasePortableFakeFS {
         };
       }
     }
+    // ESM imports often omit extensions (e.g. `import './lib/array'`).
+    // If the path has no extension, try .js / .mjs / .cjs fallbacks.
+    const basename = ppath.basename(p);
+    if (!ppath.extname(basename)) {
+      for (const path of pathsToTry) {
+        for (const ext of [".js", ".mjs", ".cjs"] as const) {
+          const candidate = npath.toPortablePath(path + ext);
+          if (this.zipFs.existsSync(candidate)) {
+            return { subPath: candidate };
+          }
+        }
+      }
+    }
   }
 
   async copyFilePromise(sourceP: PortablePath, destP: PortablePath, flags = 0) {

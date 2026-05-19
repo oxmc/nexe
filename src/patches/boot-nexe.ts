@@ -77,6 +77,22 @@ const contentBuffer = Buffer.alloc(contentSize),
 fs.readSync(fd, contentBuffer, 0, contentSize, contentStart);
 fs.closeSync(fd);
 
+// Node 24 changed finalizeResolution in the ESM loader to no longer catch ENOENT
+// from realpathSync. VFS paths don't exist on real FS, so binding.lstat (called
+// internally by realpathSync) throws ENOENT and crashes ESM imports.
+// The ESM resolver captures realpathSync via destructuring at load time, so
+// patchFs (which runs later) doesn't reach it. We install an ENOENT-tolerant
+// wrapper here, before any ESM code can load, so the resolver captures our version.
+{
+  const _origRpSync: any = fs.realpathSync;
+  const nexeRpSync = function(p: string, opts?: any): string {
+    try { return _origRpSync(p, opts); }
+    catch (e: any) { if (e?.code === 'ENOENT') return p; throw e; }
+  };
+  (nexeRpSync as any).native = _origRpSync.native;
+  (fs as any).realpathSync = nexeRpSync;
+}
+
 new Module(process.execPath, null)._compile(
   contentBuffer.slice(1).toString(),
   process.execPath

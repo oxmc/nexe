@@ -170,7 +170,15 @@ function shimFs(binary: NexeHeader, fs: typeof import("fs") = require("fs")) {
       const stat = fs.statSync(mappedPath);
       return stat.isDirectory() ? 1 : 0;
     } catch (e) {
-      return -constants.ENOENT;
+      // VFS has no entry — check the real filesystem at the original path.
+      // This handles dynamically created files (e.g. written via the patched fs)
+      // that don't exist in the zip.
+      try {
+        const realStat = originalFsMethods.statSync(statPath);
+        return realStat.isDirectory() ? 1 : 0;
+      } catch (e2) {
+        return -constants.ENOENT;
+      }
     }
   }
 
@@ -232,6 +240,68 @@ function shimFs(binary: NexeHeader, fs: typeof import("fs") = require("fs")) {
     return null;
   }
 
+  function resolveFromPkg(
+    pkg: any,
+    basePath: string,
+    request: string,
+    nodePath: any,
+    logFn: (s: string) => any,
+    isFileFn: (p: string) => boolean,
+    fsMod: typeof import("fs")
+  ): string | null {
+    // 1. exports field
+    if (pkg.exports) {
+      const conditions = ["require", "node", "default"];
+      const exportTarget = resolvePackageExports(pkg.exports, conditions);
+      if (exportTarget) {
+        const candidate = nodePath.posix.join(basePath, request, exportTarget);
+        logFn(`_findPath exports target: ${candidate}`);
+        if (isFileFn(candidate)) return candidate;
+        for (const ext of [".js", ".json", ".node"]) {
+          const withExt = candidate + ext;
+          if (isFileFn(withExt)) return withExt;
+        }
+      }
+    }
+
+    // 2. main field
+    let main = "index.js";
+    if (typeof pkg.main === "string") main = pkg.main;
+    if (main.startsWith("./")) main = main.slice(2);
+    if (!main || main === ".") main = "index.js";
+    if (main.endsWith("/")) main += "index.js";
+
+    const mainPath = nodePath.posix.join(basePath, request, main);
+    logFn(`_findPath main: ${mainPath}`);
+    try {
+      const st = fsMod.statSync(mainPath);
+      if (st.isFile()) return mainPath;
+      if (st.isDirectory()) {
+        const idxPath = nodePath.posix.join(mainPath, "index.js");
+        if (isFileFn(idxPath)) return idxPath;
+      }
+    } catch (_) {}
+
+    for (const ext of [".js", ".json", ".node"]) {
+      const withExt = mainPath + ext;
+      if (isFileFn(withExt)) return withExt;
+    }
+
+    // 3. index.js fallback only when main not explicitly set
+    if (typeof pkg.main !== "string") {
+      const fallbackIndex = nodePath.posix.join(basePath, request, "index.js");
+      if (isFileFn(fallbackIndex)) return fallbackIndex;
+    }
+
+    // 4. dist subdirectory (axios-style)
+    const distIndex = nodePath.posix.join(basePath, request, "dist", "index.js");
+    if (isFileFn(distIndex)) return distIndex;
+    const distMain = nodePath.posix.join(basePath, request, "dist", request + ".js");
+    if (isFileFn(distMain)) return distMain;
+
+    return null;
+  }
+
   let _origFindPath: ((...args: any[]) => any) | null = null;
   try {
     const Module = require("module");
@@ -240,7 +310,31 @@ function shimFs(binary: NexeHeader, fs: typeof import("fs") = require("fs")) {
     if (typeof capturedOrigFindPath === "function") {
       _origFindPath = capturedOrigFindPath;
       (Module as any)._findPath = function nexeFindPath(this: any, ...args: any[]) {
-        // Try original first
+        const request: string = args[0];
+
+        // For bare module specifiers, try VFS first. Node 22 removed
+        // internalModuleReadJSON from process.binding('fs'), so _findPath can
+        // no longer read package.json from the VFS and falls back to index.js.
+        // Our code reads package.json via the patched fs.readFileSync which works.
+        if (request && request[0] !== "." && !nodePath.isAbsolute(request)) {
+          const basePath = "/snapshot/node_modules";
+          const pkgJsonPath = nodePath.posix.join(basePath, request, "package.json");
+          let pkg: any;
+          try {
+            pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8") as string);
+          } catch (_) {
+            pkg = null;
+          }
+          if (pkg) {
+            const vfsResult = resolveFromPkg(pkg, basePath, request, nodePath, log, isFile, fs);
+            if (vfsResult) {
+              log(`_findPath VFS resolved ${request} -> ${vfsResult}`);
+              return vfsResult;
+            }
+          }
+        }
+
+        // Fall back to original for everything else (real fs, relative, absolute)
         let result: any;
         try {
           result = capturedOrigFindPath.apply(this, args);
@@ -249,82 +343,23 @@ function shimFs(binary: NexeHeader, fs: typeof import("fs") = require("fs")) {
         }
         if (result) return result;
 
-        const request: string = args[0];
-        // Only handle bare module specifiers
+        // Secondary VFS fallback for paths that couldn't be resolved above
+        // (e.g. bare specifier where package.json wasn't found in /snapshot)
         if (!request || request[0] === "." || nodePath.isAbsolute(request)) {
           return result;
         }
 
         // Use snapshot node_modules as the base for all bare modules
-        const basePath = "/snapshot/node_modules";
-        const pkgJsonPath = nodePath.posix.join(basePath, request, "package.json");
-        log(`_findPath trying snapshot package.json: ${pkgJsonPath}`);
-        let pkg: any;
+        const basePath2 = "/snapshot/node_modules";
+        const pkgJsonPath2 = nodePath.posix.join(basePath2, request, "package.json");
+        log(`_findPath secondary snapshot check: ${pkgJsonPath2}`);
+        let pkg2: any;
         try {
-          pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8") as string);
-        } catch (e) {
-          return result; // not found in snapshot
+          pkg2 = JSON.parse(fs.readFileSync(pkgJsonPath2, "utf8") as string);
+        } catch (_) {
+          return result;
         }
-
-        // 1. Try exports field with appropriate conditions (CJS, Node)
-        if (pkg.exports) {
-          const conditions = ["require", "node", "default"];
-          const exportTarget = resolvePackageExports(pkg.exports, conditions);
-          if (exportTarget) {
-            const candidate = nodePath.posix.join(basePath, request, exportTarget);
-            log(`_findPath trying exports target: ${candidate}`);
-            if (isFile(candidate)) return candidate;
-            // Try with extensions if the export target doesn't have one
-            for (const ext of [".js", ".json", ".node"]) {
-              const withExt = candidate + ext;
-              if (isFile(withExt)) return withExt;
-            }
-          }
-        }
-
-        // 2. Fallback to main field
-        let main = "index.js";
-        if (typeof pkg.main === "string") {
-          main = pkg.main;
-        }
-
-        // Normalize main path
-        if (main.startsWith("./")) main = main.slice(2);
-        if (!main || main === ".") main = "index.js";
-        if (main.endsWith("/")) main += "index.js";
-
-        const mainPath = nodePath.posix.join(basePath, request, main);
-        log(`_findPath trying main: ${mainPath}`);
-
-        // Detailed check for main
-        try {
-          const st = fs.statSync(mainPath);
-          if (st.isFile()) return mainPath;
-          if (st.isDirectory()) {
-            const idxPath = nodePath.posix.join(mainPath, "index.js");
-            if (isFile(idxPath)) return idxPath;
-          }
-        } catch (e) {
-          // mainPath may not exist; proceed to extension checks
-        }
-
-        // 3. Try with extensions
-        for (const ext of [".js", ".json", ".node"]) {
-          const withExt = mainPath + ext;
-          if (isFile(withExt)) return withExt;
-        }
-
-        // 4. Common patterns: if main is missing, look for index.js in the package root
-        const fallbackIndex = nodePath.posix.join(basePath, request, "index.js");
-        if (isFile(fallbackIndex)) return fallbackIndex;
-
-        // 5. If package uses a dist subdirectory (like axios), try dist/index.js or dist/<name>.js
-        const distIndex = nodePath.posix.join(basePath, request, "dist", "index.js");
-        if (isFile(distIndex)) return distIndex;
-        const distMain = nodePath.posix.join(basePath, request, "dist", request + ".js");
-        if (isFile(distMain)) return distMain;
-
-        return result;
+        return resolveFromPkg(pkg2, basePath2, request, nodePath, log, isFile, fs) ?? result;
       };
     }
   } catch (_) {

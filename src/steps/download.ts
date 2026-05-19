@@ -25,7 +25,7 @@ async function downloadWithProgress(
     ...options,
   });
 
-  const total = parseInt(response.headers["content-length"] || "0", 10);
+  const total = parseInt(String(response.headers["content-length"] || "0"), 10);
   let current = 0;
 
   // Create write stream
@@ -68,7 +68,7 @@ async function fetchNodeSourceAsync(
     ...options,
   });
 
-  const total = parseInt(response.headers["content-length"] || "0", 10);
+  const total = parseInt(String(response.headers["content-length"] || "0"), 10);
   let current = 0;
 
   // Create write stream for the temp file
