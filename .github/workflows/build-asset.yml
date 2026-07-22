@@ -9,10 +9,17 @@ on:
         description: 'Node.js version(s) as JSON array'
         required: true
         default: '[ "lts/*", "22", "24" ]'
+      publish:
+        description: 'Attach built assets to the release for the current package.json version'
+        type: boolean
+        default: false
   pull_request:
     branches: [ master ]
   push:
     tags: [ '*' ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -20,7 +27,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ windows-latest, macos-latest, ubuntu-latest ]
+        # windows-2025 is pinned because windows-latest now maps to the
+        # windows-2025-vs2026 image which only ships Visual Studio 2026 —
+        # Node's vcbuild.bat requires VS 2022 and fails to find it there.
+        os: [ windows-2025, macos-latest, ubuntu-latest ]
         # Use the input versions if provided, otherwise fall back to default
         version: ${{ fromJSON(inputs.versions || '[ "lts/*", "22", "24" ]') }}
     env:
@@ -52,7 +62,7 @@ jobs:
           python-version: '3.9'
 
       # Windows: install NASM (required for some native modules)
-      - if: matrix.os == 'windows-latest'
+      - if: startsWith(matrix.os, 'windows')
         run: choco install nasm
 
       # Ubuntu: update package lists (kept for safety, can be removed if not needed)
@@ -60,14 +70,14 @@ jobs:
         run: sudo apt-get update
 
       # Linux/macOS: enable compiler caching with ccache
-      - if: matrix.os != 'windows-latest'
+      - if: ${{ !startsWith(matrix.os, 'windows') }}
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           create-symlink: true
           key: ${{ github.job }}-${{ matrix.os }}-${{ matrix.version }}
 
       # Windows: adjust asset name and suffix
-      - if: matrix.os == 'windows-latest'
+      - if: startsWith(matrix.os, 'windows')
         shell: bash
         run: |
           echo "NEXE_ASSET=${NEXE_ASSET}.exe" >> $GITHUB_ENV
@@ -86,6 +96,7 @@ jobs:
           artefact_name="nexe-asset-${nexe_target}"
           mv "${NEXE_ASSET}" "${artefact_name}"
           echo "NEXE_ASSET=${artefact_name}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v$(node -p 'require("./package.json").version')" >> $GITHUB_ENV
 
       # Upload main asset
       - name: Upload asset artifact
@@ -103,7 +114,8 @@ jobs:
           path: integration-tests${{ env.EXECUTABLE_SUFFIX }}
           if-no-files-found: error
 
-      # If this is a tag push, attach the asset to the release
+      # Attach the asset to the release: on tag push, or on manual dispatch
+      # with publish=true (attaches to the release for package.json's version)
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
@@ -111,50 +123,91 @@ jobs:
           prerelease: true
           files: ${{ env.NEXE_ASSET }}
 
-      # Extra step for Ubuntu: build static (musl) version
-      - if: matrix.os == 'ubuntu-latest'
-        name: musl static build
+      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          fail_on_unmatched_files: true
+          prerelease: true
+          files: ${{ env.NEXE_ASSET }}
+
+  # Alpine (musl) static builds run natively in a musl container. The old
+  # node-musl cross toolchain (last release 2023) ships a GCC too old for
+  # Node 22+/V8 (needs GCC 12.2+); Alpine's native GCC is current.
+  build-musl:
+    runs-on: ubuntu-latest
+    container: node:${{ matrix.version }}-alpine
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [ 'lts', '22', '24' ]
+    env:
+      NEXE_ASSET: ${{ github.workspace }}/nexe-asset
+      NEXE_TMP: ${{ github.workspace }}/nexe-tmp/musl
+      MUSL_BUILD: 'yes'
+      PYTHON: python3
+      CCACHE_COMPRESS: '1'
+      CCACHE_DIR: /root/.cache/ccache
+    steps:
+      # git/tar/zstd so checkout and cache actions work in the container
+      - name: Install build dependencies
+        run: apk add --no-cache build-base linux-headers python3 py3-setuptools git bash tar zstd ccache
+
+      - uses: actions/checkout@v4
+
+      - name: Record exact Node.js version
+        run: echo "NODEJS_VERSION=$(node -p process.versions.node)" >> $GITHUB_ENV
+
+      - run: npm ci
+
+      - name: ccache cache
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/ccache
+          key: ccache-musl-${{ matrix.version }}-${{ github.run_id }}
+          restore-keys: ccache-musl-${{ matrix.version }}-
+
+      - name: Build and test asset
         shell: bash
         run: |
-          # Determine musl target and set up environment
+          export CC="ccache gcc" CXX="ccache g++"
+          node tasks/asset-build && node tasks/asset-test-build && npm run test:integration:run
+
+      - name: Update release artifact name
+        shell: bash
+        run: |
           nexe_target="$(node -p 'require("./lib/target").getTarget({ platform: "static" }).toString()')"
           echo "NEXE_TARGET=${nexe_target}" >> $GITHUB_ENV
           artefact_name="nexe-asset-${nexe_target}"
-          export NEXE_ASSET="${artefact_name}"
-          echo "NEXE_ASSET=${NEXE_ASSET}" >> $GITHUB_ENV
-          export MUSL_BUILD=yes NEXE_TMP="${NEXE_TMP_CACHE_PATH}/musl"
+          mv "${NEXE_ASSET}" "${artefact_name}"
+          echo "NEXE_ASSET=${artefact_name}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v$(node -p 'require("./package.json").version')" >> $GITHUB_ENV
 
-          # Set up cross‑compiler with ccache
-          eval $(npx -p node-musl musl-exports)
-          export CC="ccache ${CC}" CXX="ccache ${CXX}" LD="ccache ${LD}"
-
-          # Build and test musl version
-          node tasks/asset-build
-          node tasks/asset-test-build
-          npm run test:integration:run
-
-      # Upload musl asset
-      - if: matrix.os == 'ubuntu-latest'
-        name: Upload musl asset
+      - name: Upload asset artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.NEXE_ASSET }}
           path: ${{ env.NEXE_ASSET }}
           if-no-files-found: error
 
-      # Upload musl integration test binary
-      - if: matrix.os == 'ubuntu-latest'
-        name: Upload musl integration test
+      - name: Upload integration test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: integration-tests-${{ env.NEXE_TARGET }}${{ env.EXECUTABLE_SUFFIX }}
+          name: integration-tests-${{ env.NEXE_TARGET }}
           path: integration-tests
           if-no-files-found: error
 
-      # If this is a tag push, also attach the musl asset to the release
-      - if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest'
+      - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: true
+          prerelease: true
+          files: ${{ env.NEXE_ASSET }}
+
+      - if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
           fail_on_unmatched_files: true
           prerelease: true
           files: ${{ env.NEXE_ASSET }}
