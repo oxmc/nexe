@@ -65,9 +65,12 @@ jobs:
       # Windows: current runner images (windows-2025-vs2026, also served for
       # the windows-2025 label) only ship Visual Studio 2026, but Node's
       # vcbuild.bat searches for VS 2022 — install the 2022 Build Tools with
-      # the VC workload (Node's documented setup path).
+      # the VC workload (Node's documented setup path). The Clang components
+      # are needed for Node 24+ (vcbuild requires ClangCL); without them it
+      # falls back to VS 2026's Clang 22, which is too new and turns the
+      # uint32_t*/unsigned long* mismatch in deps/histogram into a hard error.
       - if: startsWith(matrix.os, 'windows')
-        run: choco install visualstudio2022-workload-vctools -y --no-progress
+        run: choco install visualstudio2022-workload-vctools -y --no-progress --package-parameters "--add Microsoft.VisualStudio.Component.VC.Llvm.Clang --add Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset"
         timeout-minutes: 30
 
       # Ubuntu: update package lists (kept for safety, can be removed if not needed)
