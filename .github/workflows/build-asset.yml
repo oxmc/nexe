@@ -27,10 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-2025 is pinned because windows-latest now maps to the
-        # windows-2025-vs2026 image which only ships Visual Studio 2026 —
-        # Node's vcbuild.bat requires VS 2022 and fails to find it there.
-        os: [ windows-2025, macos-latest, ubuntu-latest ]
+        os: [ windows-latest, macos-latest, ubuntu-latest ]
         # Use the input versions if provided, otherwise fall back to default
         version: ${{ fromJSON(inputs.versions || '[ "lts/*", "22", "24" ]') }}
     env:
@@ -64,6 +61,14 @@ jobs:
       # Windows: install NASM (required for some native modules)
       - if: startsWith(matrix.os, 'windows')
         run: choco install nasm
+
+      # Windows: current runner images (windows-2025-vs2026, also served for
+      # the windows-2025 label) only ship Visual Studio 2026, but Node's
+      # vcbuild.bat searches for VS 2022 — install the 2022 Build Tools with
+      # the VC workload (Node's documented setup path).
+      - if: startsWith(matrix.os, 'windows')
+        run: choco install visualstudio2022-workload-vctools -y --no-progress
+        timeout-minutes: 30
 
       # Ubuntu: update package lists (kept for safety, can be removed if not needed)
       - if: matrix.os == 'ubuntu-latest'
