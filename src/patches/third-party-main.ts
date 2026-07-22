@@ -97,11 +97,20 @@ export default async function main(
     );
     // Node 22.22+ / 24 removed the ENOENT catch from finalizeResolution in the
     // ESM resolver. realpathSync calls binding.lstat which throws ENOENT for VFS
-    // paths (they don't exist on real FS). Restore the catch so VFS imports work.
+    // paths (they don't exist on real FS).
+    // Prepend a wrapper at the top of resolve.js that replaces the module-level
+    // realpathSync binding with an ENOENT-tolerant version. This runs before the
+    // destructuring assignment captures it, so the fix is version-independent.
     await compiler.replaceInFileAsync(
       "lib/internal/modules/esm/resolve.js",
-      /const real = realpathSync\(path, \{ encoding: ['"]utf8['"] \}\);/,
-      "let real; try { real = realpathSync(path, { encoding: 'utf8' }); } catch (e) { if (e.code !== 'ENOENT') throw e; real = path; }"
+      "'use strict';",
+      `'use strict';
+// nexe: tolerate ENOENT from realpathSync — VFS paths don't exist on real FS
+const {realpathSync: __nexe_rps} = require('fs');
+require('fs').realpathSync = Object.assign(
+  function(p, o) { try { return __nexe_rps(p, o); } catch(e) { if (e && e.code === 'ENOENT') return p; throw e; } },
+  { native: __nexe_rps.native }
+);`
     );
     const { contents: nodeccContents } = await compiler.readFileAsync(
       "src/node.cc"
