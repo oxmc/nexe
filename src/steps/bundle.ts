@@ -198,86 +198,72 @@ export default async function bundle(compiler: NexeCompiler, next: any) {
     throw new NexeError("Parsing Error:\n" + warnings.join("\n"));
   }
 
-  // If no bundle rules, use original behavior
+  // Collect files to include
+  const filesToInclude = new Set<string>();
+
   if (Object.keys(rules).length === 0) {
-    const pkgJsonsToAdd = new Set<string>();
+    // No bundle rules: include everything the resolver traced
+    for (const file of Object.keys(files)) {
+      filesToInclude.add(file);
+    }
+  } else {
+    // Track modules with explicit bundle rules
+    const modulesWithRules = new Map<string, string>();
 
-    await Promise.all(
-      Object.entries(files).map(([key]) => {
-        step.log(`Including dependency: ${key}`);
-        // Collect the package.json for each bundled module so Node can
-        // resolve the correct entry point (main/exports) at runtime.
-        const moduleName = getModuleName(key);
-        if (moduleName) {
-          const basePath = getModuleBasePath(key, moduleName);
-          if (basePath) {
-            pkgJsonsToAdd.add(join(basePath, "package.json"));
-          }
+    for (const file of Object.keys(files)) {
+      const moduleName = getModuleName(file);
+      if (moduleName && rules[moduleName] && !modulesWithRules.has(moduleName)) {
+        const basePath = getModuleBasePath(file, moduleName);
+        if (basePath) {
+          modulesWithRules.set(moduleName, basePath);
         }
-        return compiler.addResource(key);
-      })
-    );
+      }
+    }
 
-    await Promise.all(
-      Array.from(pkgJsonsToAdd).map((pkgJson) => {
-        try {
-          statSync(pkgJson);
-          step.log(`Including package.json: ${pkgJson}`);
-          return compiler.addResource(pkgJson);
-        } catch (e) {
-          // package.json doesn't exist on disk, skip
+    // Add all files that AREN'T from modules with rules (preserve original behavior)
+    for (const file of Object.keys(files)) {
+      const moduleName = getModuleName(file);
+
+      // If this file is from a module with rules, skip it here
+      if (moduleName && modulesWithRules.has(moduleName)) {
+        continue;
+      }
+
+      // All other files get included as normal
+      filesToInclude.add(file);
+    }
+
+    // For modules WITH rules: scan and filter
+    for (const [moduleName, basePath] of modulesWithRules) {
+      const rule = rules[moduleName];
+
+      step.log(`Scanning ${moduleName} with bundle rules...`);
+
+      const moduleFiles = getAllFilesInModule(basePath);
+
+      for (const file of moduleFiles) {
+        const rel = getModuleRelativePath(file, moduleName);
+
+        if (shouldIncludeFile(file, moduleName, rule)) {
+          filesToInclude.add(file);
+          step.log(`Including ${rel} from ${moduleName}`);
+        } else {
+          step.log(`Excluding ${rel} from ${moduleName}`);
         }
-      })
-    );
-
-    return next();
-  }
-
-  // Track modules with explicit bundle rules
-  const modulesWithRules = new Map<string, string>();
-
-  for (const file of Object.keys(files)) {
-    const moduleName = getModuleName(file);
-    if (moduleName && rules[moduleName] && !modulesWithRules.has(moduleName)) {
-      const basePath = getModuleBasePath(file, moduleName);
-      if (basePath) {
-        modulesWithRules.set(moduleName, basePath);
       }
     }
   }
 
-  // Collect files to include
-  const filesToInclude = new Set<string>();
-
-  // Add all files that AREN'T from modules with rules (preserve original behavior)
-  for (const file of Object.keys(files)) {
+  // Collect the package.json for each bundled module so Node can resolve the
+  // correct entry point (main/exports) at runtime. This must cover every
+  // module in the final file set — including modules without bundle rules.
+  const pkgJsonsToAdd = new Set<string>();
+  for (const file of filesToInclude) {
     const moduleName = getModuleName(file);
-    
-    // If this file is from a module with rules, skip it here
-    if (moduleName && modulesWithRules.has(moduleName)) {
-      continue;
-    }
-    
-    // All other files get included as normal
-    filesToInclude.add(file);
-  }
-
-  // For modules WITH rules: scan and filter
-  for (const [moduleName, basePath] of modulesWithRules) {
-    const rule = rules[moduleName];
-
-    step.log(`Scanning ${moduleName} with bundle rules...`);
-
-    const moduleFiles = getAllFilesInModule(basePath);
-
-    for (const file of moduleFiles) {
-      const rel = getModuleRelativePath(file, moduleName);
-      
-      if (shouldIncludeFile(file, moduleName, rule)) {
-        filesToInclude.add(file);
-        step.log(`Including ${rel} from ${moduleName}`);
-      } else {
-        step.log(`Excluding ${rel} from ${moduleName}`);
+    if (moduleName) {
+      const basePath = getModuleBasePath(file, moduleName);
+      if (basePath) {
+        pkgJsonsToAdd.add(join(basePath, "package.json"));
       }
     }
   }
@@ -287,6 +273,21 @@ export default async function bundle(compiler: NexeCompiler, next: any) {
     Array.from(filesToInclude).map((file) => {
       step.log(`Including dependency: ${file}`);
       return compiler.addResource(file);
+    })
+  );
+
+  await Promise.all(
+    Array.from(pkgJsonsToAdd).map((pkgJson) => {
+      if (filesToInclude.has(pkgJson)) {
+        return;
+      }
+      try {
+        statSync(pkgJson);
+        step.log(`Including package.json: ${pkgJson}`);
+        return compiler.addResource(pkgJson);
+      } catch (e) {
+        // package.json doesn't exist on disk, skip
+      }
     })
   );
 
