@@ -90,6 +90,11 @@ jobs:
         run: |
           echo "NEXE_ASSET=${NEXE_ASSET}.exe" >> $GITHUB_ENV
           echo "EXECUTABLE_SUFFIX=.exe" >> $GITHUB_ENV
+          # Force vcbuild to use VS 2022: Node 24's vcbuild prefers VS 2026,
+          # whose Clang 22 fails on deps/histogram (uint32_t*/unsigned long*
+          # mismatch is a hard error there). vs2022 is accepted by Node 22
+          # and 24 alike.
+          echo "NEXE_VCBUILD=nosign,release,vs2022" >> $GITHUB_ENV
 
       # Main build & test (asset + integration)
       - name: Build and test asset

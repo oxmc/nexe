@@ -19,6 +19,8 @@ async function compile() {
     output: process.env.NEXE_ASSET || `nexe-asset${executableSuffix}`,
     input: resolvePath('test/asset-build-input.js'),
     configure: process.env.MUSL_BUILD ? ['--fully-static'] : [],
+    // Comma-separated vcbuild.bat args override, e.g. "nosign,release,vs2022"
+    ...(process.env.NEXE_VCBUILD ? { vcBuild: process.env.NEXE_VCBUILD.split(',') } : {}),
     temp: process.env.NEXE_TMP,
   })
 }
