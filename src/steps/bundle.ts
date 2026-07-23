@@ -4,7 +4,7 @@ import resolveFiles, { resolveSync } from "resolve-dependencies";
 import { dequote, STDIN_FLAG, semverGt } from "../util";
 import { Readable } from "stream";
 import { minimatch } from "minimatch";
-import { readdirSync, statSync } from "fs";
+import { readdirSync, readFileSync, statSync } from "fs";
 
 type ModuleRule = {
   include?: string[];
@@ -116,6 +116,16 @@ function shouldIncludeFile(
   }
 
   return true;
+}
+
+function collectExportStrings(node: any): string[] {
+  if (typeof node === "string") return [node];
+  if (!node || typeof node !== "object") return [];
+  const out: string[] = [];
+  for (const key of Object.keys(node)) {
+    out.push(...collectExportStrings(node[key]));
+  }
+  return out;
 }
 
 function getStdIn(stdin: Readable): Promise<string> {
@@ -250,6 +260,52 @@ export default async function bundle(compiler: NexeCompiler, next: any) {
         } else {
           step.log(`Excluding ${rel} from ${moduleName}`);
         }
+      }
+    }
+  }
+
+  // The static resolver only traces the entry file it thinks a bare specifier
+  // resolves to. For dual CJS/ESM packages (exports has both "require" and
+  // "import" conditions pointing at different files, e.g. tshy-built
+  // packages), it may pick only one — but at runtime the app can hit both a
+  // `require()` and an `import` of the same package (e.g. one dependency
+  // imports it via ESM while the resolver only traced the CJS path). Top up
+  // each bundled module's root export targets so both variants are present.
+  // Only adds files that are already declared in the package's own exports
+  // map (not whole directory trees) to keep the bundle minimal.
+  const modulesInBundle = new Map<string, string>();
+  for (const file of filesToInclude) {
+    const moduleName = getModuleName(file);
+    if (moduleName && !modulesInBundle.has(moduleName)) {
+      const basePath = getModuleBasePath(file, moduleName);
+      if (basePath) {
+        modulesInBundle.set(moduleName, basePath);
+      }
+    }
+  }
+  for (const [moduleName, basePath] of modulesInBundle) {
+    let pkg: any;
+    try {
+      pkg = JSON.parse(readFileSync(join(basePath, "package.json"), "utf8"));
+    } catch (e) {
+      continue;
+    }
+    const rootExport =
+      typeof pkg.exports === "string" ? pkg.exports : pkg.exports?.["."];
+    if (!rootExport) continue;
+
+    for (const target of collectExportStrings(rootExport)) {
+      if (!target.startsWith("./") || target.endsWith(".d.ts") || target.endsWith(".map")) {
+        continue;
+      }
+      const absTarget = join(basePath, target);
+      if (filesToInclude.has(absTarget)) continue;
+      try {
+        statSync(absTarget);
+        filesToInclude.add(absTarget);
+        step.log(`Including dual export target for ${moduleName}: ${target}`);
+      } catch (e) {
+        // target doesn't exist on disk, skip
       }
     }
   }
