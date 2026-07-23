@@ -112,6 +112,32 @@ require('fs').realpathSync = Object.assign(
   { native: __nexe_rps.native }
 );`
     );
+    // package_json_reader.js reads package.json via modulesBinding.readPackageJSON,
+    // a native binding that hits the real filesystem directly — unlike
+    // internalModuleReadFile/internalModuleStat on the 'fs' binding, our fs shim
+    // never sees these calls. For VFS-only package.json files (e.g. nested
+    // node_modules in the zip) this returns undefined, so exports/main both look
+    // absent and ESM/CJS resolution falls back to a bare "index.js". Wrap the
+    // binding: when native lookup misses, read via our patched fs and reshape the
+    // result into the same [name, main, type, imports, exports, path] tuple.
+    await compiler.replaceInFileAsync(
+      "lib/internal/modules/package_json_reader.js",
+      "const modulesBinding = internalBinding('modules');",
+      `const modulesBinding = internalBinding('modules');
+// nexe: fall back to the VFS-aware fs when the native binding can't find a
+// package.json on the real filesystem
+const __nexe_origReadPackageJSON = modulesBinding.readPackageJSON;
+modulesBinding.readPackageJSON = function(jsonPath, ...rest) {
+  const native = __nexe_origReadPackageJSON.call(modulesBinding, jsonPath, ...rest);
+  if (native !== undefined) return native;
+  try {
+    const pkg = JSON.parse(require('fs').readFileSync(jsonPath, 'utf8'));
+    return [pkg.name, pkg.main, pkg.type, pkg.imports, pkg.exports, undefined];
+  } catch (e) {
+    return undefined;
+  }
+};`
+    );
     const { contents: nodeccContents } = await compiler.readFileAsync(
       "src/node.cc"
     );
